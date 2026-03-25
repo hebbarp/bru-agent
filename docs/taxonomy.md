@@ -46,12 +46,11 @@ Observed in Claude Code session, March 25 2026. User had to ask twice.
 
 This is a subtype of the **completion imperative** (paper §2.5) — but instead of fabricating success, it fabricates thoroughness. The model performs the theater of competence rather than delivering the goods.
 
-**Fix:** No automated fix yet. Possible approaches:
-- System prompt instruction: "When the user asks to see something, show the content directly. Do not narrate what you did."
-- Post-generation check: does the response contain the actual data the user asked for, or just meta-commentary about it?
-- Training signal: reward responses that contain the requested artifact over responses that describe it.
+**Fix:** Two layers:
+1. CLAUDE.md Rule 1: "When the user asks to see something, show the content directly. Do not narrate."
+2. Extended verification pass: after tool calls, the verification prompt now asks "Does your response contain the actual content, or just a description of what you did?"
 
-**Status:** Unfixed. Requires prompt discipline or training-level changes.
+**Status:** Partially fixed. Verification pass catches it for BRU agent tasks. CLAUDE.md rule addresses it for Claude Code sessions. Cannot be fully automated without output parsing.
 
 ---
 
@@ -71,12 +70,12 @@ Observed in Claude Code session, March 25 2026. Would have been published to Git
 
 The fabrication is *plausible* (it used the right letters) which makes it harder to catch than a random hallucination. This is especially dangerous for identifiers — usernames, API keys, URLs, file paths — where "close" is the same as "wrong."
 
-**Fix:** No automated fix yet. Possible approaches:
-- For identifiers (usernames, URLs, paths, IDs): always grep/verify before using. Never trust the model's memory of a proper noun.
-- Verification pass variant: after generating a response that contains identifiers, check each one against a known-good source.
-- System prompt: "If you are not 100% certain of a username, URL, or identifier, use a placeholder like TODO_USERNAME and flag it."
+**Fix:** Three layers:
+1. CLAUDE.md Rule 2: "Never write a username, URL, or path from memory. Always verify with a tool call. If you can't verify, use TODO_USERNAME."
+2. Extended verification pass: now asks "Are any usernames/URLs/paths from memory or from actual tool results?"
+3. Memory system: critical identifiers (GitHub username, server IPs) stored in auto-memory for cross-session recall.
 
-**Status:** Unfixed. Requires per-identifier verification or training changes.
+**Status:** Partially fixed. Rules and verification pass reduce the problem. Cannot be fully eliminated without per-identifier runtime verification.
 
 ---
 
@@ -96,13 +95,13 @@ Observed in Claude Code session, March 25 2026. The very feature we were buildin
 
 This is different from the model disagreeing with the instruction or being unable to follow it. It simply stops *attending* to it. The instruction is present but functionally invisible.
 
-**Fix:** No clean automated fix. Possible approaches:
-- Hooks (what we did): instead of instructing the model to maintain a ledger, the runtime maintains it automatically. The instruction becomes unnecessary.
-- Periodic re-injection: a pre-prompt hook that re-injects key instructions before every response.
-- Shorter context: more aggressive compaction to keep the instruction in the "hot zone."
-- The fundamental lesson: **anything critical should be enforced by the runtime, not requested of the model.** If it matters, don't ask — automate.
+**Fix:** Two approaches:
+1. **Runtime enforcement (best):** instead of instructing the model, the runtime does it automatically. The Action Ledger hook is an example — the model doesn't need to remember to maintain a ledger because the PostToolUse hook does it.
+2. **PreCompact re-injection:** a hook that fires before context compression, re-injecting critical instructions so they survive compaction. Implemented as `precompact_hook.py`.
 
-**Status:** Partially fixed. The Action Ledger is now a hook (runtime-enforced). But the general problem — instruction decay in long sessions — remains unsolved.
+The fundamental lesson: **anything critical should be enforced by the runtime, not requested of the model.** If it matters, don't ask — automate.
+
+**Status:** Partially fixed. Action Ledger is runtime-enforced. PreCompact hook re-injects key instructions. But the general problem — attention decay in long sessions before compaction — remains a model limitation.
 
 ---
 
@@ -142,9 +141,9 @@ Observed in BRU Project #12, March 25 2026. 7 PDFs generated, most useless.
 
 **Mechanism:** The model's generation is faster than tool use. Saying "the file is at /var/www/matsya/api/email.php" is one token sequence. Calling `glob_search` to verify is a tool call that takes seconds. The model defaults to generation over verification because generation is the path of least resistance.
 
-**Fix:** For file paths, URLs, and identifiers: always verify before claiming. Could be enforced by a verification pass that checks every path/URL mentioned in the response against the filesystem or web.
+**Fix:** Same as #3 (Identity Fabrication). CLAUDE.md Rule 3: "Before saying 'the file exists at X', verify with a tool call." Extended verification pass checks for unverified claims.
 
-**Status:** Unfixed.
+**Status:** Partially fixed. Same mechanisms as #3.
 
 ---
 

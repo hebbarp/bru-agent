@@ -13,6 +13,7 @@ from anthropic import Anthropic
 from pathlib import Path
 
 from bru_agent.matsya.client import MatsyaClient
+from bru_agent.core.ledger import ActionLedger
 from bru_agent.skills.registry import SkillRegistry
 
 # World Model (Phase 1 - Passive Observer)
@@ -1205,8 +1206,10 @@ Provide your response that completes or addresses this task. Use the available t
             max_iterations = 10
             iteration = 0
 
-            # Action Ledger — ground truth record of every tool execution
+            # Action Ledger — persistent ground truth record of every tool execution
             action_ledger = []
+            ledger = ActionLedger(storage_dir=str(self.output_dir.parent / 'data' / 'ledger'))
+            ledger.start_session(task.get('title', 'unnamed'), model="claude-sonnet-4-20250514")
 
             while iteration < max_iterations:
                 iteration += 1
@@ -1306,6 +1309,10 @@ Provide your response that completes or addresses this task. Use the available t
                                 'result_summary': str(tool_msg)[:200],
                             })
 
+                            # Persist to file-based ledger
+                            target = str(tool_input)[:80] if isinstance(tool_input, str) else str(tool_input.get('to', tool_input.get('filepath', tool_input.get('query', ''))))[:80]
+                            ledger.record(tool_name, target, tool_success, str(tool_msg)[:200])
+
                             tool_results.append({
                                 "type": "tool_result",
                                 "tool_use_id": tool_use_id,
@@ -1360,15 +1367,24 @@ Provide your response that completes or addresses this task. Use the available t
                                     final_text = vblock.text
                                     break
                             logger.info("Verification Pass: response corrected")
+                            ledger.record_verification(True, "corrected")
                         except Exception as ve:
                             logger.error(f"Verification Pass failed: {ve}")
                             failed_names = [a['tool'] for a in action_ledger if not a['success']]
                             final_text += f"\n\nNote: These actions failed: {', '.join(failed_names)}"
+                            ledger.record_verification(True, "fallback warning appended")
+                    else:
+                        ledger.record_verification(False)
 
                     # Strip thinking/reasoning artifacts from output
                     final_text = self._strip_thinking(final_text)
+
+                    # Save ledger to disk for audit
+                    ledger.close()
+
                     return final_text if final_text else "Task completed successfully."
 
+            ledger.close()
             return "Task processing exceeded maximum iterations."
 
         except Exception as e:

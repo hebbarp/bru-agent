@@ -20,6 +20,7 @@ cp .env.example .env
 | 3 | `03_action_ledger_demo.py` | The verification pass catching a lie | Anthropic key |
 | 4 | `04_email_channel.py` | Monitor inbox, respond to emails | IMAP credentials |
 | 5 | `05_lntl_encoding.py` | LLM-Native Tool Language format | Nothing (runs standalone) |
+| 6 | `06_view_ledger.py` | Review past sessions (audit trail) | Previous sessions in data/ledger/ |
 
 ## Running
 

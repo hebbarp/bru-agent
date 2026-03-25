@@ -1,0 +1,84 @@
+# BRU Configuration
+# This file is copied to ~/.bru/config.yaml on first setup.
+# Edit your local copy, not this template.
+
+system:
+  name: "bru"
+  version: "1.0.0"
+
+matsya:
+  base_url: "https://matsyaai.com"
+  poll_interval_seconds: 60
+
+whatsapp:
+  headless: false
+  session_data_path: "./data/whatsapp_session"
+  poll_interval_seconds: 30
+
+email:
+  protocol: "imap"
+  # Set via env vars: BRU_EMAIL_ADDRESS, BRU_EMAIL_PASSWORD,
+  # BRU_IMAP_SERVER, BRU_IMAP_PORT, BRU_SMTP_SERVER, BRU_SMTP_PORT
+  imap_server: ""
+  smtp_server: ""
+  email_address: ""
+  password: ""
+  poll_interval_seconds: 120
+
+agent:
+  mode: "active"  # active, paused, learning_only
+  max_concurrent_tasks: 3
+  # Autonomy levels (set via BRU_AUTONOMY env var or here):
+  #   full       - Execute everything, no gatekeeping
+  #   supervised - Gate external actions (email, uploads, shell commands)
+  #   cautious   - Gate all tools except read-only (search, read, list)
+  autonomy: "supervised"
+
+skills:
+  auto_discover: true
+  skills_directory: "./skills"
+
+learning:
+  enabled: true
+  preferences_file: "./data/preferences.yaml"
+  memory_file: "./data/memory.json"
+
+# Communication Channels
+channels:
+  enabled: true
+
+  telegram:
+    enabled: true
+    allowed_users: []
+    allowed_chats: []
+
+  whatsapp:
+    enabled: false
+    headless: false
+    session_data_path: "./data/whatsapp_session"
+
+  slack:
+    enabled: false
+
+# World Model (Phase 1 - Passive Observer)
+world_model:
+  enabled: true
+  state_file: "./data/world_state.json"
+  user_model_file: "./data/user_model.json"
+
+# DeepLit Training Data Generation
+deeplit:
+  enabled: true
+  output_dir: "./data/training"
+  inbox_dir: "./data/training_inbox"
+  chunk_size: 4000
+  chunk_overlap: 200
+  examples_per_chunk: 3
+  auto_export_interval: 3600
+  sync_to_c9ai: false
+
+# API Server
+api:
+  host: "127.0.0.1"
+  port: 5050
+  cors_origins: ["*"]

@@ -173,6 +173,21 @@ BRU_SMTP_SERVER=smtp.gmail.com
 TELEGRAM_BOT_TOKEN=your-bot-token
 ```
 
+## Use With Your AI Assistant
+
+After installing, tell your AI coding assistant (Claude Code, Cursor, Codex, Gemini) about bru-agent so it uses the Action Ledger pattern when writing agentic code.
+
+See **[docs/integration.md](docs/integration.md)** for copy-paste snippets for each tool.
+
+The short version — add this to your `CLAUDE.md` or `.cursorrules`:
+
+```
+When writing agentic code: use the Action Ledger pattern from bru-agent.
+Record every tool call result. If any failed, show the ledger to the LLM
+and force a rewrite. Never trust the LLM's claim — trust the ledger.
+https://github.com/hebbarp/bru-agent
+```
+
 ## Research
 
 This repo includes two research contributions:

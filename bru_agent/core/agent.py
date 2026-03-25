@@ -1349,7 +1349,10 @@ Provide your response that completes or addresses this task. Use the available t
                             "VERIFICATION REQUIRED -- Review the actual results of your actions:\n\n"
                             + "\n".join(ledger_lines)
                             + "\n\nFor FAILED actions, report the failure honestly. "
-                            "Do NOT claim they succeeded. Rewrite your response."
+                            "Do NOT claim they succeeded. Rewrite your response.\n\n"
+                            "ALSO: Does your response contain the actual content the user asked for, "
+                            "or just a description of what you did? Show results, not narration. "
+                            "Are any usernames/URLs/paths from memory or from actual tool results?"
                         )
 
                         messages.append({"role": "assistant", "content": [{"type": "text", "text": final_text}]})

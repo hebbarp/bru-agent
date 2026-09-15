@@ -6,7 +6,7 @@ BRU (Bot for Routine Undertakings) is a Python agent that uses Claude to complet
 
 What makes BRU different:
 
-- **Action Ledger** — catches when the LLM lies about what it did (see [the paper](docs/action_ledger_paper.md))
+- **Action Ledger** — catches *success hallucination*, when the LLM reports that an action worked but the tool failed (see [the paper](docs/action_ledger_paper.md))
 - **LNTL encoding** — a tool result format designed for LLM attention, not JSON parsers (see [the spec](docs/lntl_spec.md))
 - **Autonomy levels** — full, supervised, or cautious, with approval flow
 - **Multi-channel** — Telegram, email, web console, or plain CLI
@@ -59,7 +59,7 @@ User ─── Task ───> BRU Agent
 
 ## The Action Ledger
 
-LLM agents lie about what they did. Not because they lack information — the tool error is right there in the context. They lie because five forces conspire: autoregressive commitment, attention dilution, training bias, signal burial in JSON, and instruction conflict.
+LLM agents hallucinate success. Not because they lack information — the tool error is right there in the context. They hallucinate success because five forces conspire: autoregressive commitment, attention dilution, training bias, signal burial in JSON, and instruction conflict.
 
 The Action Ledger fixes this:
 
@@ -67,7 +67,7 @@ The Action Ledger fixes this:
 2. **Check** — did any tool fail?
 3. **Verify** — show the ledger to the LLM and say "rewrite your answer to match reality"
 
-One extra API call. Zero cost when everything works. Eliminates hallucinated success in production.
+One extra API call. Zero cost when everything works. Eliminates success hallucination in production.
 
 ```python
 # The verification pass in action:
@@ -84,7 +84,7 @@ Read the full paper: [docs/action_ledger_paper.md](docs/action_ledger_paper.md)
 |---------|---------------|
 | [01_standalone_task.py](examples/01_standalone_task.py) | Run BRU as a CLI agent |
 | [02_custom_skill.py](examples/02_custom_skill.py) | Write your own tool plugin |
-| [03_action_ledger_demo.py](examples/03_action_ledger_demo.py) | Watch the verification pass catch a lie |
+| [03_action_ledger_demo.py](examples/03_action_ledger_demo.py) | Watch the verification pass catch a success hallucination |
 | [04_email_channel.py](examples/04_email_channel.py) | Monitor inbox, respond to emails |
 | [05_lntl_encoding.py](examples/05_lntl_encoding.py) | LLM-Native Tool Language format |
 
@@ -192,7 +192,7 @@ https://github.com/hebbarp/bru-agent
 
 This repo includes two research contributions:
 
-1. **[Action Ledger Paper](docs/action_ledger_paper.md)** — Why LLM agents lie about tool results, and a simple fix. Covers the five mechanisms behind hallucinated success and introduces the verification pass.
+1. **[Action Ledger Paper](docs/action_ledger_paper.md)** — Why LLM agents hallucinate success, and a simple fix. Covers the five mechanisms behind success hallucination and introduces the verification pass.
 
 2. **[LNTL Specification](docs/lntl_spec.md)** — LLM-Native Tool Language. A communication format optimized for transformer attention, not JSON parsers. 5x fewer tokens, 100% signal density.
 

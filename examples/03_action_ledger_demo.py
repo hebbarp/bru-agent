@@ -1,6 +1,6 @@
 """
 Example 3: Action Ledger Demo
-Demonstrates how the Action Ledger catches hallucinated success.
+Demonstrates how the Action Ledger catches success hallucination.
 
 This example:
 1. Registers a skill that deliberately FAILS
@@ -9,7 +9,7 @@ This example:
 4. Shows the Verification Pass correcting the response
 
 This is the core contribution of the paper:
-"Action Ledger: Stopping LLM Agents From Lying About What They Did"
+"Action Ledger: Detecting and Preventing Success Hallucination in LLM Agents"
 """
 
 import asyncio

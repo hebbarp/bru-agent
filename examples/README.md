@@ -17,7 +17,7 @@ cp .env.example .env
 |---|------|---------------|-------|
 | 1 | `01_standalone_task.py` | Run BRU as a one-shot CLI agent | Anthropic key |
 | 2 | `02_custom_skill.py` | Write your own tool plugin | Nothing (runs standalone) |
-| 3 | `03_action_ledger_demo.py` | The verification pass catching a lie | Anthropic key |
+| 3 | `03_action_ledger_demo.py` | The verification pass catching a success hallucination | Anthropic key |
 | 4 | `04_email_channel.py` | Monitor inbox, respond to emails | IMAP credentials |
 | 5 | `05_lntl_encoding.py` | LLM-Native Tool Language format | Nothing (runs standalone) |
 | 6 | `06_view_ledger.py` | Review past sessions (audit trail) | Previous sessions in data/ledger/ |
@@ -31,7 +31,7 @@ python examples/01_standalone_task.py "Find the top 5 Python web frameworks and 
 # Example 2: See how custom skills work (no API key needed)
 python examples/02_custom_skill.py
 
-# Example 3: Watch the Action Ledger catch a hallucinated success
+# Example 3: Watch the Action Ledger catch a success hallucination
 python examples/03_action_ledger_demo.py
 
 # Example 5: See LNTL encoding in action (no API key needed)

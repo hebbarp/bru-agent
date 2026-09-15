@@ -10,7 +10,7 @@ This is the open-source release of BRU Agent — an autonomous AI agent framewor
 
 ## Key Contributions
 
-1. **Action Ledger** — prevents LLM agents from lying about tool results. Paper at `docs/action_ledger_paper.md`
+1. **Action Ledger** — prevents success hallucination (LLM agents claiming failed tool calls succeeded). Paper at `docs/action_ledger_paper.md`
 2. **LNTL** (LLM-Native Tool Language) — tool result encoding optimized for transformer attention. Spec at `docs/lntl_spec.md`
 3. **Autonomy levels** — full/supervised/cautious with approval flow
 4. **Task-type classification** — research/writing/deliverable/action, each gets a different system prompt

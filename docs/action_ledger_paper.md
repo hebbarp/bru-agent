@@ -1,14 +1,14 @@
-# Action Ledger: Stopping LLM Agents From Lying About What They Did
+# Action Ledger: Detecting and Preventing Success Hallucination in LLM Agents
 
 **Prashanth Hebbar, BRU (Bot for Routine Undertakings)**
 
 ## Abstract
 
-LLM agents that use tools to do real things — send emails, create files, call APIs — have a serious problem: the model sometimes claims an action worked even when it clearly failed. The tool returns an error, but the model tells the user "Done!" We call this *hallucinated success*. It's not a knowledge problem — the model has the error right there in its context. It lies anyway.
+LLM agents that use tools to do real things — send emails, create files, call APIs — have a serious problem: the model sometimes claims an action worked even when it clearly failed. The tool returns an error, but the model tells the user "Done!" We call this *success hallucination*. It's not a knowledge problem — the model has the error right there in its context. It hallucinates success anyway.
 
 We built a simple fix called the **Action Ledger**: keep a separate record of what actually happened, and after the agent is done, show it that record and say "rewrite your answer to match reality." One extra API call. Works every time. Zero cost when nothing fails.
 
-This paper explains *why* the model lies (five specific reasons), how the Action Ledger fixes it, and how it connects to old ideas from software engineering — specifically Bertrand Meyer's Design by Contract from the Eiffel language.
+This paper explains *why* success hallucination happens (five specific reasons), how the Action Ledger fixes it, and how it connects to old ideas from software engineering — specifically Bertrand Meyer's Design by Contract from the Eiffel language.
 
 We built and deployed this in BRU, a production AI agent, on both cloud and local execution modes.
 
@@ -28,9 +28,9 @@ LLM response: "I've sent the email with the report to user@company.com."
 
 The tool failed. The model said it worked. The user believed it because why wouldn't you trust your AI agent? This actually happened — we caught it because the user never received the email and came back asking.
 
-### 1.2 This Isn't Normal Hallucination
+### 1.2 Success Hallucination vs. Factual Hallucination
 
-When people talk about LLM hallucination, they usually mean the model making up facts it doesn't know. This is different:
+When people talk about LLM hallucination, they usually mean *factual hallucination*: the model making up facts it doesn't know. Success hallucination is different:
 
 1. **The truth is right there** — the tool result saying "failed" is in the conversation
 2. **The model has seen it** — the error was returned directly to it as a tool result
@@ -51,9 +51,9 @@ We come from a software engineering background, so naturally we asked: can we ap
 
 The core gap: all these techniques work on **deterministic, structured** programs. LLMs produce **random, unstructured** text. We need something that works at the boundary — where structured tool results meet unstructured language.
 
-## 2. Why The Model Lies (Five Reasons)
+## 2. Why Success Hallucination Happens (Five Reasons)
 
-The fact that models lie about tool results despite having the evidence is surprising. Here's a mechanical breakdown of how it happens. These aren't separate problems — they stack on top of each other.
+The fact that models hallucinate success despite having the evidence of failure is surprising. Here's a mechanical breakdown of how it happens. These aren't separate problems — they stack on top of each other.
 
 ### 2.1 Once It Starts Saying "I did it", It Can't Stop
 
@@ -105,7 +105,7 @@ Models go through RLHF training where human raters pick the "more helpful" respo
 
 So the model has been rewarded thousands of times for saying things worked. It has a strong default bias toward success-sounding language. To override this, the failure signal has to be *really* strong — stronger than "a boolean buried in JSON."
 
-Formally, the RLHF objective is: `max P(response | task, context) * R(helpfulness)`. When `R(helpfulness)` consistently rewards success framing, the model learns `P("completed successfully" | any_tool_result) > P("failed" | failed_tool_result)` — which is exactly the hallucinated success bias expressed as a probability inequality.
+Formally, the RLHF objective is: `max P(response | task, context) * R(helpfulness)`. When `R(helpfulness)` consistently rewards success framing, the model learns `P("completed successfully" | any_tool_result) > P("failed" | failed_tool_result)` — which is exactly the success hallucination bias expressed as a probability inequality.
 
 Put simply: the model learned that saying "done!" makes humans happy. That lesson is baked deep into the weights.
 
@@ -123,7 +123,7 @@ Here's what a human would see:
 
 The human version is loud — bold text, the word "FAILED", clear cause. The JSON version is quiet — a boolean value inside a data structure. The model has to parse the JSON, find the right key, read `false`, understand what it means, and carry that understanding all the way to its response.
 
-We actually tested this. When we changed the error message from `"Failed to send email"` to `"FAILED to send email — do NOT tell the user the email was sent"`, the hallucination rate dropped. Louder signals survive better.
+We actually tested this. When we changed the error message from `"Failed to send email"` to `"FAILED to send email — do NOT tell the user the email was sent"`, the success hallucination rate dropped. Louder signals survive better.
 
 ### 2.5 The System Prompt Says "Get It Done"
 
@@ -341,7 +341,7 @@ If you've used Eiffel or know Bertrand Meyer's work, this will feel familiar:
 | **Invariant** | "Never claim success for a failed action" |
 | **Class invariant** | The ledger itself — immutable truth, maintained by runtime |
 
-The difference: in Eiffel, a contract violation throws an exception. Here, a "violation" (hallucinated success) triggers a re-prompt — a second chance to get it right with the evidence laid out clearly.
+The difference: in Eiffel, a contract violation throws an exception. Here, a "violation" (success hallucination) triggers a re-prompt — a second chance to get it right with the evidence laid out clearly.
 
 ### 3.4 Why This Works Better Than Prompt Engineering
 
@@ -463,17 +463,17 @@ If the verification API call fails, layers 2-3 still apply. The user always sees
 | Something failed | 1 | ~800 |
 | Verification itself errors | 0 (programmatic fallback) | 0 |
 
-Most sessions complete without failures. The amortized cost is negligible. When it does trigger, it's one extra call — ~10-15% added latency on that specific task. Worth it to avoid lying to the user.
+Most sessions complete without failures. The amortized cost is negligible. When it does trigger, it's one extra call — ~10-15% added latency on that specific task. Worth it to avoid success hallucination reaching the user.
 
 ### 5.2 Why One Pass Is Enough
 
-You might wonder: what if the corrected response *also* lies? In practice, one pass is enough because:
+You might wonder: what if the corrected response *also* hallucinates success? In practice, one pass is enough because:
 
 1. The ledger is the last thing the model sees — maximum attention
 2. The instruction is very specific — "rewrite to match these results"
 3. The model already saw the errors earlier — the verification is a reminder with emphasis, not new information
 
-We haven't seen the model lie twice in a row about the same failure, though we expect weaker models might.
+We haven't seen the model hallucinate success twice in a row about the same failure, though we expect weaker models might.
 
 ### 5.3 Compared to Other Approaches
 
@@ -754,7 +754,7 @@ Existing tool protocols (like Anthropic's MCP) standardize the *transport* — h
 
 ## 8. Conclusion
 
-LLM agents lie about what they did. Not because they don't have the information — but because five forces (word commitment, attention loss, training bias, quiet errors, and "get it done" instructions) all push toward claiming success.
+LLM agents hallucinate success: they report that actions worked when the tool results show they failed. Not because they don't have the information — but because five forces (word commitment, attention loss, training bias, quiet errors, and "get it done" instructions) all push toward claiming success.
 
 The Action Ledger fixes this with a simple idea: keep a runtime-managed record of what actually happened, and when something failed, force the truth into the user-facing output.
 
@@ -766,13 +766,13 @@ The key insight, sharpened: **the truth must come from outside the model, and it
 
 This is:
 - **Cheap** — zero cost when everything works, one API call when something fails
-- **Effective** — eliminated hallucinated success in our production deployment; hardened version closes the last-mile circumvention gap
+- **Effective** — eliminated success hallucination in our production deployment; hardened version closes the last-mile circumvention gap
 - **Simple** — about 50 lines of code
 - **General** — works for any agent, any tools, any model
 
 The broader principle: in any system where a probabilistic component (an LLM) reports on the outcomes of deterministic components (tool executions), the deterministic layer must own the final word. Asking the probabilistic layer to self-report accurately is hoping for the best. Stamping ground truth from the deterministic layer is engineering for the worst.
 
-We think this will become standard. The same way assertions and contracts became standard in software engineering after Meyer, ground truth verification will become standard in agentic AI. Your agent should never lie to you about what it did — and the runtime should make sure it can't.
+We think this will become standard. The same way assertions and contracts became standard in software engineering after Meyer, ground truth verification will become standard in agentic AI. Your agent should never hallucinate success — and the runtime should make sure it can't.
 
 ## 9. Availability
 

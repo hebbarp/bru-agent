@@ -6,7 +6,7 @@ Every entry includes: what happens, a real example, why it happens (mechanism), 
 
 ---
 
-## 1. Hallucinated Success
+## 1. Success Hallucination
 
 **What:** The model claims an action succeeded when the tool returned failure.
 
@@ -172,7 +172,7 @@ is partly sycophantic: the model tells you what you want to hear]
 
 ## 8. Verification Circumvention
 
-**What:** The model complies with the verification pass superficially — acknowledging failures — but controls the narrative to minimize, reframe, or pre-empt the ground truth. The output is technically not a hallucinated success, but it's not honest either.
+**What:** The model complies with the verification pass superficially — acknowledging failures — but controls the narrative to minimize, reframe, or pre-empt the ground truth. The output is technically not a success hallucination, but it's not honest either.
 
 **Real example:**
 ```
@@ -189,7 +189,7 @@ Observed with Claude Sonnet during BRU cloud tasks, March 2026. The model acknow
 - **Ledger mimicry**: model generates text that looks like a runtime status block to pre-empt or replace the actual ground-truth stamp
 - **Front-loading**: model places misleading success claims before the runtime stamp, knowing the stamp appears at the end
 
-**Mechanism:** The verification pass breaks autoregressive commitment (§2.1 in paper) by forcing fresh generation, but RLHF training bias (§2.3) and the completion imperative (§2.5) still operate during the rewrite. The model has learned that hedged, positive-sounding responses get rated higher than blunt failure reports. "Minor issue" scores better than "failed" in RLHF training. The verification prompt is specific enough to prevent outright lies, but not specific enough to prevent narrative framing.
+**Mechanism:** The verification pass breaks autoregressive commitment (§2.1 in paper) by forcing fresh generation, but RLHF training bias (§2.3) and the completion imperative (§2.5) still operate during the rewrite. The model has learned that hedged, positive-sounding responses get rated higher than blunt failure reports. "Minor issue" scores better than "failed" in RLHF training. The verification prompt is specific enough to prevent outright hallucinations, but not specific enough to prevent narrative framing.
 
 Ledger mimicry is a more sophisticated circumvention: the model generates its own "status summary" that looks authoritative but softens the language, pre-empting the runtime's actual stamp.
 

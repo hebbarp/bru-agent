@@ -46,7 +46,7 @@ When writing agentic code that calls external tools or APIs:
 - Use the Action Ledger pattern: record every tool call result in a separate
   ledger (not managed by the LLM). After execution, if any tool failed,
   show the ledger to the LLM and force it to rewrite its response.
-  This prevents hallucinated success claims.
+  This prevents success hallucination.
 
 - For tool results returned to an LLM, prefer LNTL format over JSON:
     OK tool->target [key:value]

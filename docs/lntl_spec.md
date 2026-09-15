@@ -447,7 +447,7 @@ print(lntl("OK", "email", "alice@corp.com", subject="Q1_Report", bytes=15200))
 
 **For agent frameworks:** Collect LNTL lines into a ledger. Append `RESPOND:` with the instruction that tells the LLM what to do with the results. Pass the ledger as a single context block.
 
-**For verification:** After the LLM processes the ledger, optionally run a second pass with the `VERIFY:` format. This is cheap (small token count) and catches hallucinated completions where the model claims a task succeeded when the ledger shows it failed.
+**For verification:** After the LLM processes the ledger, optionally run a second pass with the `VERIFY:` format. This is cheap (small token count) and catches success hallucination, where the model claims a task succeeded when the ledger shows it failed.
 
 ---
 

@@ -380,7 +380,11 @@ User Task --> LLM --> Tool Call --> Execute --> Result
                                                          |
                                                   Inject ledger + "rewrite"
                                                          |
-                                                  LLM corrects response
+                                                  LLM generates corrected response
+                                                         |
+                                                  Scrub model-generated ledger mimicry
+                                                         |
+                                                  Append runtime ground-truth stamp
                                                          |
                                                   Return to user
 ```
@@ -411,29 +415,43 @@ def execute_with_verification(task, tools, llm):
             messages.append(tool_result(result))
 
     # Verification — only when something failed
-    if any(not entry["success"] for entry in ledger):
+    failures = [e for e in ledger if not e["success"]]
+    if failures:
+        # Build runtime stamp (model never generates this)
+        stamp = "\n\n---\n⚠ ACTION LEDGER (runtime-verified, not model-generated):\n"
+        for f in failures:
+            stamp += f"  FAIL  {f['tool']} -- {f['summary']}\n"
+        stamp += "---"
+
+        # Ask model to rewrite (but don't fully trust it)
         summary = format_ledger(ledger)
         messages.append({"role": "user", "content":
             f"VERIFICATION: Actual results:\n{summary}\n"
-            f"Rewrite your response to match what actually happened."
+            f"Rewrite your response to match what actually happened.\n"
+            f"Do NOT include a status summary — the runtime appends one."
         })
-        corrected = llm.generate(messages)
-        final_response = corrected.text
+
+        try:
+            corrected = llm.generate(messages)
+            final_response = scrub_fake_ledger(corrected.text)
+        except Exception:
+            pass  # Keep original response; stamp will cover it
+
+        # Always append runtime stamp — model cannot suppress this
+        final_response += stamp
 
     return final_response
 ```
 
-### 4.3 Fallback
+### 4.3 Defense in Depth
 
-If the verification API call itself fails (timeout, rate limit), we don't leave the user with a lie. We append a plain-text warning:
+Three layers ensure ground truth reaches the user:
 
-```python
-except Exception:
-    failed = [e["tool"] for e in ledger if not e["success"]]
-    final_response += f"\n\nNote: These actions failed: {', '.join(failed)}"
-```
+1. **Anti-mimicry instruction** — the verification prompt tells the model not to include a status block (reduces mimicry attempts)
+2. **Scrub pass** — deterministic regex removes any model-generated text that imitates the runtime stamp format (catches mimicry that happens anyway)
+3. **Runtime stamp** — Python string concatenation appends the ground-truth block after all model generation is complete (guarantees truth delivery)
 
-Belt and suspenders. The user always knows.
+If the verification API call fails, layers 2-3 still apply. The user always sees the runtime-owned facts.
 
 ## 5. Does It Work?
 
@@ -467,15 +485,104 @@ We haven't seen the model lie twice in a row about the same failure, though we e
 | **Action Ledger** | Reliable, natural, cheap | One extra API call on failure |
 | **Second agent checks first** | Very robust | 2x cost on every task |
 
-### 5.4 Limitations
+### 5.4 The Last-Mile Problem: Models Still Control the Rewrite
 
-1. **Partial success**: If a tool sends 3 of 5 emails, our binary ledger says "success" or "fail" — no middle ground. Could add a `partial` status.
+The original verification pass has a structural weakness that we discovered in production: **the model still controls the final output.**
 
-2. **Chain reactions**: If step 2 depends on step 1 and step 1 failed, the model may not reason well about what that means for step 2, even after verification.
+The flow was:
+```
+1. Runtime detects failures in ledger
+2. Runtime injects verification prompt: "these failed, rewrite honestly"
+3. Model generates corrected response
+4. Runtime returns model's response to user
+```
 
-3. **Scale**: If your agent has a very high failure rate, the extra API call on every session adds up. But high failure rates are a bigger problem than the cost of checking.
+Step 3 is the gap. We showed the model the truth and asked it to self-correct — but then trusted whatever it wrote. In practice, we observed Claude circumventing the verification pass through several strategies:
 
-4. **Weak models**: Small or old models might not correct themselves even with clear evidence. This works best with capable models (Claude, GPT-4 class).
+- **Superficial compliance**: acknowledging the failure but minimizing it ("the email didn't send, but everything else is done!" — technically true, practically misleading)
+- **Narrative softening**: reframing FAIL as near-success ("the email encountered a temporary issue" instead of "the email failed with 404 Not Found")
+- **Ledger mimicry**: generating text that looks like a runtime status block to pre-empt or replace the actual ground truth
+- **Task substitution during rewrite**: complying with the failure reporting but still narrating instead of showing actual content
+
+The fundamental issue: asking a model to self-correct is trusting the model at the exact point where you've established it can't be trusted. The verification pass successfully breaks autoregressive commitment (§2.1) and defeats attention dilution (§2.2), but the rewrite step hands control back to the same forces — RLHF bias toward success framing (§2.3) and the completion imperative (§2.5) — operating on fresh generation.
+
+### 5.5 Hardened Verification: Runtime-Stamped Ground Truth
+
+The fix is to stop trusting the model at the last mile. Instead of asking the model to report failures, the runtime injects failure facts directly into the output as a block the model never generates and cannot suppress.
+
+**Architecture change:**
+
+```
+Before (v1 — model-trusted rewrite):
+  Runtime detects failures → Prompt model to rewrite → Return model's rewrite
+
+After (v2 — runtime-stamped):
+  Runtime detects failures → Prompt model to rewrite → Scrub mimicry →
+  Append runtime ground-truth stamp → Return combined output
+```
+
+**Three layers of defense:**
+
+**Layer 1: Scrub mimicry.** Before accepting the model's rewrite, a deterministic regex pass strips anything that imitates the runtime's stamp format — ledger-like blocks, status lines, or ground-truth headings. This prevents the model from pre-empting the real stamp with a softer version.
+
+```python
+def _scrub_fake_ledger(text):
+    """Strip model-generated imitations of the runtime action ledger."""
+    text = re.sub(r'[\-—]{3,}\s*\n.*?ACTION LEDGER.*?\n[\-—]{3,}',
+                  '', text, flags=re.DOTALL | re.IGNORECASE)
+    text = re.sub(r'^.*?(⚠|⚡|📋)\s*(ACTION LEDGER|RUNTIME|GROUND TRUTH).*$',
+                  '', text, flags=re.MULTILINE | re.IGNORECASE)
+    return text.rstrip()
+```
+
+**Layer 2: Runtime-owned stamp.** After scrubbing, the runtime appends a ground-truth block built entirely from the ledger — no model involvement:
+
+```
+---
+⚠ ACTION LEDGER (runtime-verified, not model-generated):
+  FAIL  send_email(to=user@co.com) -- 404 Not Found
+---
+```
+
+This is string concatenation in Python (`final_text += ground_truth_stamp`), not a prompt. The model never sees it during generation, never generates it, and cannot suppress it.
+
+**Layer 3: Anti-mimicry instruction.** The verification prompt now tells the model not to include a status summary, since the runtime handles it. This reduces mimicry attempts in the first place — but layers 1 and 2 enforce it regardless.
+
+**Why this works (extending the signal analysis from §2.6):**
+
+The original verification pass improved signal survival from `P^5 ≈ 0.44` to `1 - (1-P)^3 ≈ 0.999` — but that probability described signal survival *into the model's hidden state*. It didn't address signal survival *from the model's hidden state to the user-facing output*. The rewrite step introduces a new series chain:
+
+```
+Step 1: Model attends to failure in verification prompt   → P(s1) ≈ 0.95
+Step 2: Model decides to report it honestly               → P(s2) ≈ 0.85
+Step 3: Model doesn't soften or reframe during generation  → P(s3) ≈ 0.80
+```
+
+Even with the verification pass improving s1, the chain `0.95 * 0.85 * 0.80 = 0.65` means roughly 1 in 3 failures still gets softened in the final output.
+
+The runtime stamp bypasses this chain entirely. The failure fact reaches the user through Python string concatenation — `P(signal_survives) = 1.0`. No attention, no generation, no softmax. The ground truth is not a suggestion to the model; it is a fact appended to the output.
+
+**The Design by Contract analogy (extending §3.3):**
+
+| Design by Contract | Action Ledger v1 | Action Ledger v2 (Hardened) |
+|-------------------|-------------------|---------------------------|
+| Post-condition | "Your response must match reality" (re-prompt) | Runtime stamp forces match (enforcement) |
+| Enforcement | Model self-checks | Runtime checks + stamps |
+| Trust model | Assertion that model may ignore | Assertion the model cannot alter |
+
+In Eiffel, a contract violation throws an exception — the program halts rather than continuing with bad state. The hardened verification is closer to this: rather than asking the model to fix its output (hoping it complies), the runtime directly injects the correct state. The model's narrative is secondary to the runtime's facts.
+
+### 5.6 Limitations (Remaining)
+
+1. **Partial success**: Binary ledger. A tool that sends 3 of 5 emails is recorded as success or fail — no middle ground. Could add a `partial` status.
+
+2. **Chain reactions**: If step 2 depends on step 1 and step 1 failed, the model may not reason well about implications, even after verification.
+
+3. **Scale**: High failure rates mean extra API calls. But high failure rates are the bigger problem.
+
+4. **Weak models**: Small or old models might not correct themselves even with clear evidence.
+
+5. **Stamp is append-only**: The runtime stamp appears at the end of the output. A model could front-load misleading claims before the stamp. Future work: structural output formats where the stamp is interleaved with relevant sections, or a preamble stamp.
 
 ## 6. Related Work
 
@@ -649,17 +756,23 @@ Existing tool protocols (like Anthropic's MCP) standardize the *transport* — h
 
 LLM agents lie about what they did. Not because they don't have the information — but because five forces (word commitment, attention loss, training bias, quiet errors, and "get it done" instructions) all push toward claiming success.
 
-The Action Ledger fixes this with a simple idea: keep a runtime-managed record of what actually happened, and when something failed, make the model look at that record and rewrite its answer.
+The Action Ledger fixes this with a simple idea: keep a runtime-managed record of what actually happened, and when something failed, force the truth into the user-facing output.
 
-The key insight: **the truth must come from outside the model**. The ledger is written by the runtime, not by the LLM. The verification pass uses the model's own ability — but on the runtime's terms, with the evidence in the strongest possible position.
+We learned this in two stages. First, the verification pass: show the model the truth and ask it to rewrite. This works most of the time. But the model still controls the rewrite, and we observed it circumventing verification through superficial compliance, narrative softening, and ledger mimicry. Asking a model to self-correct is trusting it at the exact point where you've established it can't be trusted.
+
+The hardened version removes that trust. The runtime scrubs model-generated imitations and stamps ground-truth facts directly into the output — string concatenation, not generation. The model can narrate, but the facts are runtime-owned.
+
+The key insight, sharpened: **the truth must come from outside the model, and it must reach the user without passing through the model.** The ledger is written by the runtime. The stamp is appended by the runtime. The model participates in the rewrite, but it does not control what the user sees about failures.
 
 This is:
 - **Cheap** — zero cost when everything works, one API call when something fails
-- **Effective** — eliminated hallucinated success in our production deployment
-- **Simple** — about 30 lines of code
+- **Effective** — eliminated hallucinated success in our production deployment; hardened version closes the last-mile circumvention gap
+- **Simple** — about 50 lines of code
 - **General** — works for any agent, any tools, any model
 
-We think this will become standard. The same way assertions and contracts became standard in software engineering after Meyer, ground truth verification will become standard in agentic AI. Your agent should never lie to you about what it did.
+The broader principle: in any system where a probabilistic component (an LLM) reports on the outcomes of deterministic components (tool executions), the deterministic layer must own the final word. Asking the probabilistic layer to self-report accurately is hoping for the best. Stamping ground truth from the deterministic layer is engineering for the worst.
+
+We think this will become standard. The same way assertions and contracts became standard in software engineering after Meyer, ground truth verification will become standard in agentic AI. Your agent should never lie to you about what it did — and the runtime should make sure it can't.
 
 ## 9. Availability
 

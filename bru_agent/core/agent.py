@@ -1058,6 +1058,32 @@ But for simple conversations, just respond naturally without using tools."""
         result = '\n'.join(cleaned).strip()
         return result if result else text.strip()
 
+    @staticmethod
+    def _scrub_fake_ledger(text: str) -> str:
+        """Remove model-generated imitations of the runtime action ledger.
+
+        Claude may try to pre-empt or mimic the ground-truth stamp to control
+        the narrative. Strip anything that looks like a ledger block so the
+        runtime-owned stamp is the only one the user sees.
+        """
+        import re
+        # Remove blocks that mimic the runtime stamp format
+        text = re.sub(
+            r'[\-—]{3,}\s*\n.*?ACTION LEDGER.*?\n[\-—]{3,}',
+            '', text, flags=re.DOTALL | re.IGNORECASE
+        )
+        # Remove inline mimicry: lines starting with common ledger prefixes
+        text = re.sub(
+            r'^.*?(⚠|⚡|📋)\s*(ACTION LEDGER|RUNTIME|GROUND TRUTH).*$',
+            '', text, flags=re.MULTILINE | re.IGNORECASE
+        )
+        # Remove model-generated "Note: These actions failed:" lines
+        text = re.sub(
+            r'\n*Note:\s*These actions failed:.*$',
+            '', text, flags=re.MULTILINE | re.IGNORECASE
+        )
+        return text.rstrip()
+
     def _get_system_prompt(self, task_type: str) -> str:
         """Get task-type-appropriate system prompt for Claude."""
 
@@ -1330,12 +1356,14 @@ Provide your response that completes or addresses this task. Use the available t
                         if hasattr(block, 'text'):
                             final_text += block.text
 
-                    # ---- Verification Pass ----
-                    # If any tool failed, force Claude to reconcile claims with ground truth
+                    # ---- Verification Pass (Hardened) ----
+                    # If any tool failed, force Claude to reconcile claims with ground truth,
+                    # then stamp the output with runtime-owned facts the model cannot alter.
                     has_failures = any(not a['success'] for a in action_ledger)
                     if action_ledger and has_failures:
+                        failed_actions = [a for a in action_ledger if not a['success']]
                         logger.info(f"Verification Pass: {len(action_ledger)} actions, "
-                                    f"{sum(1 for a in action_ledger if not a['success'])} failures")
+                                    f"{len(failed_actions)} failures")
 
                         ledger_lines = []
                         for entry in action_ledger:
@@ -1345,6 +1373,20 @@ Provide your response that completes or addresses this task. Use the available t
                                 line += f" -- {entry['result_summary']}"
                             ledger_lines.append(line)
 
+                        # Build runtime ground-truth stamp (model cannot alter this)
+                        stamp_lines = []
+                        for a in failed_actions:
+                            stamp_lines.append(
+                                f"  FAIL  {a['tool']}({a['input_summary'][:80]}) "
+                                f"-- {a['result_summary'][:120]}"
+                            )
+                        ground_truth_stamp = (
+                            "\n\n---\n"
+                            "⚠ ACTION LEDGER (runtime-verified, not model-generated):\n"
+                            + "\n".join(stamp_lines)
+                            + "\n---"
+                        )
+
                         verify_msg = (
                             "VERIFICATION REQUIRED -- Review the actual results of your actions:\n\n"
                             + "\n".join(ledger_lines)
@@ -1352,7 +1394,9 @@ Provide your response that completes or addresses this task. Use the available t
                             "Do NOT claim they succeeded. Rewrite your response.\n\n"
                             "ALSO: Does your response contain the actual content the user asked for, "
                             "or just a description of what you did? Show results, not narration. "
-                            "Are any usernames/URLs/paths from memory or from actual tool results?"
+                            "Are any usernames/URLs/paths from memory or from actual tool results?\n\n"
+                            "IMPORTANT: Do NOT include an action ledger or status summary in your "
+                            "response -- the runtime will append ground truth automatically."
                         )
 
                         messages.append({"role": "assistant", "content": [{"type": "text", "text": final_text}]})
@@ -1369,13 +1413,19 @@ Provide your response that completes or addresses this task. Use the available t
                                 if hasattr(vblock, 'text'):
                                     final_text = vblock.text
                                     break
+
+                            # Scrub any model-generated ledger mimicry from the rewrite
+                            final_text = self._scrub_fake_ledger(final_text)
+
                             logger.info("Verification Pass: response corrected")
-                            ledger.record_verification(True, "corrected")
+                            ledger.record_verification(True, "corrected+stamped")
                         except Exception as ve:
                             logger.error(f"Verification Pass failed: {ve}")
-                            failed_names = [a['tool'] for a in action_ledger if not a['success']]
-                            final_text += f"\n\nNote: These actions failed: {', '.join(failed_names)}"
-                            ledger.record_verification(True, "fallback warning appended")
+                            ledger.record_verification(True, "fallback stamp appended")
+
+                        # Always append runtime stamp — model rewrite cannot suppress this
+                        final_text += ground_truth_stamp
+
                     else:
                         ledger.record_verification(False)
 

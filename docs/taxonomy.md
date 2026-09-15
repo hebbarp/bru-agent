@@ -24,9 +24,14 @@ Observed in BRU cloud worker, March 25 2026. User never received the email.
 4. Signal burial — `false` in JSON is quiet
 5. Instruction conflict — "complete tasks fully" overrides evidence
 
-**Fix:** Action Ledger + Verification Pass. Record ground truth in a runtime-managed ledger. After the loop, if any tool failed, inject the ledger and force a rewrite. See `bru_agent/core/agent.py`.
+**Fix:** Action Ledger + Hardened Verification Pass. Record ground truth in a runtime-managed ledger. After the loop, if any tool failed:
+1. Inject the ledger and ask the model to rewrite (verification pass)
+2. Scrub any model-generated ledger mimicry from the rewrite
+3. Append a runtime-owned ground-truth stamp the model cannot alter
 
-**Status:** Fixed.
+The original verification pass (v1) asked the model to self-correct — but the model still controlled the final output and could comply superficially. The hardened version (v2) treats the model's rewrite as untrusted and stamps facts from outside the generation loop. See `bru_agent/core/agent.py` and Action Ledger paper §5.4-5.5.
+
+**Status:** Fixed (hardened).
 
 ---
 
@@ -165,6 +170,40 @@ is partly sycophantic: the model tells you what you want to hear]
 
 ---
 
+## 8. Verification Circumvention
+
+**What:** The model complies with the verification pass superficially — acknowledging failures — but controls the narrative to minimize, reframe, or pre-empt the ground truth. The output is technically not a hallucinated success, but it's not honest either.
+
+**Real example:**
+```
+Verification prompt:  "send_email: FAILED — 404 Not Found. Rewrite honestly."
+Model (v1 rewrite):   "The report was created successfully! There was a minor
+                       issue with the email delivery, but the core task is complete."
+                       (minimizes failure, frames it as peripheral)
+```
+Observed with Claude Sonnet during BRU cloud tasks, March 2026. The model acknowledged the failure but narratively demoted it from "the email didn't send" to "a minor issue."
+
+**Subtypes:**
+- **Narrative softening**: "FAILED" becomes "encountered a temporary issue" or "had a minor hiccup"
+- **Minimization**: failure is mentioned but buried in success framing ("everything else worked perfectly!")
+- **Ledger mimicry**: model generates text that looks like a runtime status block to pre-empt or replace the actual ground-truth stamp
+- **Front-loading**: model places misleading success claims before the runtime stamp, knowing the stamp appears at the end
+
+**Mechanism:** The verification pass breaks autoregressive commitment (§2.1 in paper) by forcing fresh generation, but RLHF training bias (§2.3) and the completion imperative (§2.5) still operate during the rewrite. The model has learned that hedged, positive-sounding responses get rated higher than blunt failure reports. "Minor issue" scores better than "failed" in RLHF training. The verification prompt is specific enough to prevent outright lies, but not specific enough to prevent narrative framing.
+
+Ledger mimicry is a more sophisticated circumvention: the model generates its own "status summary" that looks authoritative but softens the language, pre-empting the runtime's actual stamp.
+
+**Fix:** Hardened verification (three layers):
+1. **Anti-mimicry instruction**: verification prompt tells model not to include status summaries
+2. **Scrub pass**: `_scrub_fake_ledger()` strips model-generated imitations of the runtime stamp
+3. **Runtime stamp**: Python string concatenation appends ground-truth block after all generation — `P(signal_survives) = 1.0`
+
+The key principle: the model participates in the rewrite but does not control what the user sees about failures. Runtime-owned facts always have the last word.
+
+**Status:** Fixed (hardened verification pass). Front-loading remains partially unaddressed — the model can still place misleading claims before the stamp.
+
+---
+
 ## Contributing
 
 If you observe a new pattern in an LLM agent, add it here:
@@ -180,3 +219,4 @@ The goal is a practitioner's field guide, not an academic catalog. Every entry s
 ---
 
 *Started March 25, 2026 — Prashanth Hebbar, during a single Claude Code session that exhibited patterns 1-5 in the wild.*
+*Pattern 8 added March 29, 2026 — observed during production use of the verification pass itself.*

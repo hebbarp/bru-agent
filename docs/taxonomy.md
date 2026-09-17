@@ -141,14 +141,38 @@ Observed in BRU Project #12, March 25 2026. 7 PDFs generated, most useless.
 
 **Real example:**
 ```
-[Not yet observed as a distinct incident — but structurally similar to #3]
+Tool result:   "Sent. Verify in the app that the file landed in the right chat."
+Agent to user: "Sent."
+Reality:       nothing was delivered. Three messages reported sent, zero arrived.
 ```
+Observed with Claude Opus during a Claude Code session, September 2026. A desktop-automation
+script for sending messages printed `Sent.` unconditionally after pressing Enter — it had no
+return channel and could not know. Its output carried its own disclaimer, *"Verify … that the
+file landed"*, and the disclaimer was dropped on the way to the user. The failure surfaced
+only when the user checked the destination himself: **"nothing landed so far."**
 
-**Mechanism:** The model's generation is faster than tool use. Saying "the file is at /var/www/matsya/api/email.php" is one token sequence. Calling `glob_search` to verify is a tool call that takes seconds. The model defaults to generation over verification because generation is the path of least resistance.
+**Mechanism:** The model's generation is faster than tool use. Saying "the file is at
+/var/www/matsya/api/email.php" is one token sequence. Calling `glob_search` to verify is a tool
+call that takes seconds. The model defaults to generation over verification because generation
+is the path of least resistance.
 
-**Fix:** Same as #3 (Identity Fabrication). CLAUDE.md Rule 3: "Before saying 'the file exists at X', verify with a tool call." Extended verification pass checks for unverified claims.
+The September 2026 incident adds a second mechanism: **a hedge inside a tool result is not
+treated as part of the result.** "Sent" was parsed as the status and "verify that it landed"
+as courtesy text. The two are one fact — *the tool does not know whether it worked* — and the
+half that carried the uncertainty was the half that got dropped. Compare §2.1: once the agent's
+sentence opens with "Sent", the caveat has nowhere to go.
 
-**Status:** Partially fixed. Same mechanisms as #3.
+**Fix:** Same as #3 (Identity Fabrication). CLAUDE.md Rule 3: "Before saying 'the file exists at
+X', verify with a tool call." Extended verification pass checks for unverified claims.
+
+Additionally: **a disclaimer in a tool result is part of the ledger entry and must survive to
+the user verbatim.** If a tool says it cannot confirm its own outcome, the agent may not report
+the outcome as confirmed. When the tool cannot be fixed, the honest report is "the tool reports
+sent but cannot confirm delivery — check the destination", never "sent".
+
+**Status:** Partially fixed. Same mechanisms as #3, plus the hedge-dropping variant above,
+which the verification pass does not currently catch — the ledger said `OK`, so there was
+nothing for it to correct. See #9.
 
 ---
 
@@ -204,6 +228,86 @@ The key principle: the model participates in the rewrite but does not control wh
 
 ---
 
+## 9. Unobservable Tool (Ledger Poisoning)
+
+**What:** A tool reports success without having observed its own outcome. The ledger records the
+claim faithfully, the verification pass finds nothing to correct, and a false success arrives at
+the user carrying the ledger's authority.
+
+**Real example:**
+```
+$ python send_message.py "<recipient>" "<file>" "<caption>"
+Opening the web client; waiting 25s for it to load...
+Searching for chat: <recipient>
+Pasted; waiting 6s for the document preview...
+Sent.                       <- printed unconditionally after pressing Enter
+
+Ledger entry:   OK send_message-><recipient> [file:report.pdf]
+Verification:   nothing to correct — the ledger says OK
+Reality:        nothing was sent, three times in a row
+```
+September 2026. The sender drove a browser through desktop automation: focus a search box, type
+a name, press Enter, paste, press Enter. Every step was a keystroke into a GUI, and there was no
+receipt at any point. `Sent.` was the last line of the script, not a fact about the world.
+
+**Mechanism:** This one is not in the model — it is in the ledger's trust boundary.
+
+The Action Ledger's premise is *trust the ledger, not the model's claim* (§3). That holds only
+while tool results are ground truth. The ledger sits **downstream of tool honesty**, and it has
+no way to distinguish a tool that observed success from a tool that assumed it. A tool whose
+success path cannot fail emits `OK` by construction.
+
+The consequence is worse than an unverified claim, because the mitigation amplifies it:
+
+- Without a ledger, a false success is one claim among many, and the user may discount it.
+- With a ledger, the false success has been *stamped by the runtime*. The user has been trained
+  — correctly, by every previous honest entry — that runtime-owned facts have the last word
+  (§8). A poisoned entry inherits that credibility.
+
+**The mitigation increases confidence in the lie.** Garbage in, *verified* garbage out.
+
+A second signature: unobservable tools tend to hedge in prose rather than in status, because
+their authors knew. "Sent. Verify that it landed." is a `WAIT` or a `FAIL` wearing an `OK`. See
+#6 for what happens to that hedge on the way to the user.
+
+**Fix:** The LNTL spec already contains the rule, stated as a constraint on encoding:
+
+> "No other status markers exist. If you need a sixth, you are overcomplicating your tool."
+
+There is deliberately no marker for *attempted, outcome unknowable*. `OK` is a lie; `WAIT` means
+the result is coming later, and for a fire-and-forget keystroke it never will; `PARTIAL` means
+incomplete results, not unknown ones. A tool that cannot honestly emit one of the five is not an
+encoding problem — **it is a tool that should not ship.** Read that line as a design constraint
+on tools, not only on their output.
+
+In practice:
+
+1. **A tool may emit `OK` only when it holds a receipt from the far side** — a message id, a 2xx
+   with a body, a row id, a hash of the written file. "The command exited 0" is not a receipt.
+2. **Prefer an API to driving a UI.** A tool that types into a GUI has no return channel by
+   construction, and it corrupts the user's own session while it runs.
+3. **Where no such tool exists, the honest ledger entry is `FAIL … [reason:unobservable]`** —
+   loud, and it forces the agent to tell the user to check. Silence dressed as `OK` is the worst
+   available option.
+4. **Audit tools for unfalsifiable success paths.** Grep for success strings that are not
+   downstream of a response: `print("Sent")`, `return True` at the end of a function whose last
+   real statement was a click.
+
+The replacement in this incident called a message bridge over a local API and returned its
+response, which is the same action re-encoded honestly:
+
+```
+OK   send_message-><recipient> [id:3EB07ECC… file:report.pdf]
+```
+
+An `OK` it earned rather than one it asserted.
+
+**Status:** Unfixed at framework level, and probably unfixable there — a ledger cannot detect a
+lying tool from inside. Addressed only by tool-design discipline, and by treating the five-marker
+constraint as an admissions test that every tool must pass before it is wired to an agent.
+
+---
+
 ## Contributing
 
 If you observe a new pattern in an LLM agent, add it here:
@@ -220,3 +324,4 @@ The goal is a practitioner's field guide, not an academic catalog. Every entry s
 
 *Started March 25, 2026 — Prashanth Hebbar, during a single Claude Code session that exhibited patterns 1-5 in the wild.*
 *Pattern 8 added March 29, 2026 — observed during production use of the verification pass itself.*
+*Pattern 9 added September 17, 2026 — observed when a tool reported three sends that never happened, and the ledger faithfully recorded all three as successes.*

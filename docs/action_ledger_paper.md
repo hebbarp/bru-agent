@@ -584,6 +584,12 @@ In Eiffel, a contract violation throws an exception — the program halts rather
 
 5. **Stamp is append-only**: The runtime stamp appears at the end of the output. A model could front-load misleading claims before the stamp. Future work: structural output formats where the stamp is interleaved with relevant sections, or a preamble stamp.
 
+6. **The ledger trusts the tool**: This is the assumption the whole mechanism rests on, and it is worth stating plainly. The ledger records what a tool *reported*, not what happened. A tool that cannot observe its own outcome — one that drives a GUI, fires and forgets, or simply prints a success string as its last line — writes `OK` into the ledger by construction, and the verification pass finds nothing to correct.
+
+   This is not a small residual risk, because the mitigation amplifies it. A false success inside a ledger has been stamped by the runtime, and the user has been taught that runtime-owned facts have the last word (§5.5). The stamp lends its credibility to the lie. Garbage in, verified garbage out.
+
+   There is no fix from inside the framework: a ledger cannot detect a dishonest tool. The defence is upstream, at tool design — a tool may claim `OK` only when it holds a receipt from the far side, and the five markers of §7 are the admissions test. See taxonomy #9, *Unobservable Tool*.
+
 ## 6. Related Work
 
 - **ReAct** (Yao et al., 2023): Mixes reasoning with action but doesn't verify that action claims match reality.
